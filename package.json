@@ -12,6 +12,7 @@
   },
   "devDependencies": {
     "@types/three": "^0.148.1",
+    "nodemon": "^2.0.20",
     "parcel": "^2.8.3",
     "parcel-reporter-static-files-copy": "^1.5.0"
   },
