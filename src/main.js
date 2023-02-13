@@ -9,16 +9,27 @@ import { OctreeHelper } from 'three//examples/jsm/helpers/OctreeHelper.js';
 import { Capsule } from 'three/examples/jsm/math/Capsule.js';
 
 
-// SCENE INIT
+// INIT
 
 const scene = new THREE.Scene();
 const worldOctree = new Octree();
+const STEPS_PER_FRAME = 5;
+let playerCollider;
+let playerDirection = new THREE.Vector3();
+let targetCollider;
+
+// PARAMETERS INITIALISATION
+
+const GRAVITY = 30;
+const IMPULSE = 50;
+const CAMERA_HEIGHT = 5;
+const BUCKET_POSITION = new THREE.Vector3(2, 0.8, -6)
+const TARGET_SPHERE_RADIUS = 1.2;
 
 // CAMERA
 
 const aspect = window.innerWidth / window.innerHeight;
 const camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
-camera.position.set(2, 5, 2);
 
 // RENDERER
 
@@ -39,81 +50,89 @@ scene.add(dirLight);
 scene.fog = new THREE.Fog(0xffffff, 0.015, 100);
 scene.background = new THREE.Color(0x87CEEB)
 
+// CONTROLS
+
+const controlsTypes = {
+  ORBIT: "orbit",
+  POINTERLOCK: "pointerLock"
+};
+
+let controlsType = controlsTypes.POINTERLOCK;
+let controls;
+
+if (controlsType === controlsTypes.ORBIT) {
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.listenToKeyEvents(window); // optional
+} else if (controlsType === controlsTypes.POINTERLOCK) {
+  controls = new PointerLockControls(camera, renderer.domElement);
+  controls.lock();
+  controls.addEventListener('lock', function () { menuPanel.style.display = 'none'; });
+  controls.addEventListener('unlock', function () { menuPanel.style.display = 'block'; });
+} else {
+  console.log("erreur: controls non défini")
+}
+
 // MENU PANEL
 
 const menuPanel = document.getElementById('menuPanel');
 const startButton = document.getElementById('startButton');
-startButton.addEventListener(
-  'click',
-  function () {
+startButton.addEventListener('click', function () {
+  if (controlsType === controlsTypes.ORBIT) {
+    menuPanel.style.display = 'none';
+  } else if (controlsType === controlsTypes.POINTERLOCK) {
     controls.lock()
-  },
-  false
-)
-
-// CONTROLS
-
-/*
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.listenToKeyEvents(window); // optional
-controls.enablePan = false;
-controls.enableZoom = false;
-*/
-
-const controls = new PointerLockControls(camera, renderer.domElement);
-controls.lock();
-controls.addEventListener('lock', function () { menuPanel.style.display = 'none'; });
-controls.addEventListener('unlock', function () { menuPanel.style.display = 'block'; });
-
+  }
+}, false)
 
 // LOADER
 
-async function loadData(datafile, modelManipulation = false) {
-  new GLTFLoader()
-    .setPath('assets/models/')
-    .load(datafile, (gltf) => {
-      let model = null;
-      model = gltf.scene;
-      if (model != null) {
-        console.log("Model loaded:  " + model);
-        if (modelManipulation) {
-          modelManipulation(model);
-        }
-        scene.add(model);
-        //worldOctree.fromGraphNode(model);
-      } else {
-        console.log("Load FAILED.  ");
-        return false
-      }
-    });
-}
-
-// TEST CUBE 
-
-const geometry = new THREE.BoxGeometry(1, 1, 1);
-const material = new THREE.MeshNormalMaterial();
-const cube = new THREE.Mesh(geometry, material);
-scene.add(cube);
+let loader = new GLTFLoader().setPath('assets/models/');
 
 // LOADING BUCKET
 
-function bucketManipulation(bucket) {
-  //worldOctree.fromGraphNode(bucket);
-  const x = 2;
-  const y = 1;
-  const z = -6;
-  bucket.position.set(x, y, z);
-  camera.lookAt(x, y, z);
-}
-
-loadData('myBucket.glb', bucketManipulation)
+const bucketLoadingPromise = new Promise((resolve, reject) => {
+  loader.load('myBucket.glb', (gltf) => {
+    let model = null;
+    model = gltf.scene;
+    if (model != null) {
+      resolve(model);
+    } else {
+      reject("load Failed");
+    }
+  })
+})
+  .then(bucket => {
+    const x = BUCKET_POSITION.x;
+    const y = BUCKET_POSITION.y;
+    const z = BUCKET_POSITION.z;
+    bucket.position.set(x, y, z);
+    worldOctree.fromGraphNode(bucket);
+    camera.lookAt(x, y, z);
+    targetCollider = new THREE.Sphere(BUCKET_POSITION, TARGET_SPHERE_RADIUS);
+    scene.add(bucket);
+  })
 
 
 // LOADING GARDEN
 
-loadData('garden.glb');
+const gardenLoadingPromise = new Promise((resolve, reject) => {
+  loader.load('garden.glb', (gltf) => {
+    let model = null;
+    model = gltf.scene;
+    if (model != null) {
+      resolve(model);
+    } else {
+      reject("load Failed");
+    }
+  })
+})
+  .then(garden => {
+    let root = garden.getObjectByName('gardengltf').getObjectByName('gardenglb').getObjectByName('Sketchfab_model').getObjectByName('Root');
+    let ground = root.getObjectByName('Ground').getObjectByName('Ground_0');
+    scene.add(garden);
+  })
 
-// ADDING SPHERES
+// OBJECT MANAGEMENT
 
 const SPHERE_RADIUS = 0.2;
 
@@ -127,48 +146,41 @@ scene.add(sphereMesh);
 
 let sphere = {
   mesh: sphereMesh,
-  collider: new THREE.Sphere(new THREE.Vector3(0, - 100, 0), SPHERE_RADIUS),
-  velocity: new THREE.Vector3()
+  collider: new THREE.Sphere(new THREE.Vector3(3, 5, 2), SPHERE_RADIUS),
+  velocity: new THREE.Vector3(),
+  hold: true
 };
 
-// ****************************************************
-//
-// THROWING THINGS
+// SPAWN INITIALISATION
 
-// init
+function spawn(x, y, z) {
+  // camera 
+  camera.position.set(x, y, z);
+  //camera.lookAt(bucket)
+  // player collider
+  let capsuleStart = new THREE.Vector3(0, -0.3, 0).add(camera.position);
+  let capsuleEnd = new THREE.Vector3(0.3, -0.1, 0).add(camera.position);
+  playerCollider = new Capsule(capsuleStart, capsuleEnd, 0.35);
+  // object
+  sphere.collider.center.set(x, y, z)
+  sphere.mesh.position.copy(sphere.collider.center);
+  sphere.hold = true;
+}
 
-const GRAVITY = 30;
-const STEPS_PER_FRAME = 5;
-
-let capsuleStart = new THREE.Vector3(0, -0.3, 0).add(camera.position);
-let capsuleEnd = new THREE.Vector3(0.3, -0.1, 0).add(camera.position);
-
-const playerCollider = new Capsule(capsuleStart, capsuleEnd, 0.35);
-
-const playerVelocity = new THREE.Vector3();
-const playerDirection = new THREE.Vector3();
-
-let mouseTime = 0;
-
-// event listeners
+// EVENT LISTENERS
 
 document.addEventListener('mouseup', () => {
-  console.log(sphere.mesh.position);
+  //console.log(sphere);
   if (document.pointerLockElement !== null) throwBall();
 });
 
-document.addEventListener('mousedown', () => {
-  mouseTime = performance.now();
-});
-
-// physics
+// PHYSICS
 
 function throwBall() {
+  sphere.hold = false;
   camera.getWorldDirection(playerDirection);
   sphere.collider.center.copy(playerCollider.end).addScaledVector(playerDirection, playerCollider.radius * 1.5);
-  const impulse = 15 + 30 * (1 - Math.exp((mouseTime - performance.now()) * 0.001));
-  sphere.velocity.copy(playerDirection).multiplyScalar(impulse);
-  sphere.velocity.addScaledVector(playerVelocity, 2);
+  sphere.velocity.copy(playerDirection).multiplyScalar(IMPULSE);
 }
 
 function updateSphere(deltaTime) {
@@ -182,11 +194,24 @@ function updateSphere(deltaTime) {
   }
   const damping = Math.exp(- 1.5 * deltaTime) - 1;
   sphere.velocity.addScaledVector(sphere.velocity, damping);
-
   sphere.mesh.position.copy(sphere.collider.center);
-
 }
 
+function targetReached(target, object) {
+  // checking if the target is reached by the object
+  const d2 = target.center.distanceToSquared(object.collider.center);
+  const r = target.radius + object.collider.radius;
+  const r2 = r * r;
+  return (d2 < r2);
+}
+
+function groundIntersected(object) {
+  if (object.collider.center.y - object.collider.radius < 0) {
+    let x = object.collider.center.x;
+    let z = object.collider.center.z;
+    spawn(x, CAMERA_HEIGHT, z);
+  }
+}
 
 // CLOCK
 
@@ -199,10 +224,28 @@ const animation = () => {
   renderer.setAnimationLoop(animation); // requestAnimationFrame() replacement, compatible with XR 
 
   const deltaTime = Math.min(0.05, clock.getDelta()) / STEPS_PER_FRAME;
-  updateSphere(deltaTime);
+  if (!sphere.hold) {
+    updateSphere(deltaTime);
+    groundIntersected(sphere);
+  }
+
+  //console.log(targetCollider);
+  if (targetReached(targetCollider, sphere)) {
+    console.log("c'est good");
+    sphere.collider.center.set(0, -100, 0);
+  };
 
   renderer.render(scene, camera);
 
 };
 
-animation();
+// PLAYING
+
+Promise.all([gardenLoadingPromise, bucketLoadingPromise])
+  .then(result => {
+    console.log(result);
+    spawn(2, 5, 5);
+    animation();
+  })
+
+
