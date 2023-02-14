@@ -17,6 +17,7 @@ const STEPS_PER_FRAME = 5;
 let playerCollider;
 let playerDirection = new THREE.Vector3();
 let targetCollider;
+let message = document.getElementById("message");
 
 // PARAMETERS INITIALISATION
 
@@ -180,7 +181,7 @@ document.addEventListener('mousedown', () => {
 document.addEventListener('mouseup', () => {
   endTimer = new Date()
   let mouseTime = endTimer - startTimer;
-  IMPULSE = 10 + 200 * mouseTime * 0.0001;
+  IMPULSE = 15 + 200 * mouseTime * 0.0001;
   if (document.pointerLockElement !== null) throwBall();
 });
 
@@ -189,7 +190,7 @@ document.addEventListener('mouseup', () => {
 function throwBall() {
   sphere.hold = false;
   camera.getWorldDirection(playerDirection);
-  playerDirection.y += 0.5;
+  playerDirection.y += 0.5; // permit to give a smooth curve to the ball
   sphere.collider.center.copy(playerCollider.end).addScaledVector(playerDirection, playerCollider.radius * 1.5);
   sphere.velocity.copy(playerDirection).multiplyScalar(IMPULSE);
 }
@@ -242,8 +243,10 @@ const animation = () => {
 
   //console.log(targetCollider);
   if (targetReached(targetCollider, sphere)) {
-    console.log("c'est good");
-    sphere.collider.center.set(0, -100, 0);
+    spawn(2, 5, 5);
+    controls.unlock()
+    message.innerText = "Congratulations ! As I see you would have been the best bucketball player in the middle age. Play as you want !";
+    menuPanel.style.display = 'block';
   };
 
   renderer.render(scene, camera);
