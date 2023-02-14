@@ -20,11 +20,12 @@ let targetCollider;
 
 // PARAMETERS INITIALISATION
 
-const GRAVITY = 30;
-const IMPULSE = 50;
+const GRAVITY = 60;
 const CAMERA_HEIGHT = 5;
 const BUCKET_POSITION = new THREE.Vector3(2, 0.8, -6)
 const TARGET_SPHERE_RADIUS = 1.2;
+
+let IMPULSE = 30;
 
 // CAMERA
 
@@ -62,7 +63,7 @@ let controls;
 
 if (controlsType === controlsTypes.ORBIT) {
   controls = new OrbitControls(camera, renderer.domElement);
-  controls.listenToKeyEvents(window); // optional
+  controls.listenToKeyEvents(window);
 } else if (controlsType === controlsTypes.POINTERLOCK) {
   controls = new PointerLockControls(camera, renderer.domElement);
   controls.lock();
@@ -169,8 +170,17 @@ function spawn(x, y, z) {
 
 // EVENT LISTENERS
 
+let startTimer;
+let endTimer;
+
+document.addEventListener('mousedown', () => {
+  startTimer = new Date();
+});
+
 document.addEventListener('mouseup', () => {
-  //console.log(sphere);
+  endTimer = new Date()
+  let mouseTime = endTimer - startTimer;
+  IMPULSE = 10 + 200 * mouseTime * 0.0001;
   if (document.pointerLockElement !== null) throwBall();
 });
 
@@ -179,6 +189,7 @@ document.addEventListener('mouseup', () => {
 function throwBall() {
   sphere.hold = false;
   camera.getWorldDirection(playerDirection);
+  playerDirection.y += 0.5;
   sphere.collider.center.copy(playerCollider.end).addScaledVector(playerDirection, playerCollider.radius * 1.5);
   sphere.velocity.copy(playerDirection).multiplyScalar(IMPULSE);
 }
@@ -206,7 +217,7 @@ function targetReached(target, object) {
 }
 
 function groundIntersected(object) {
-  if (object.collider.center.y - object.collider.radius < 0) {
+  if (object.collider.center.y - object.collider.radius < 1) {
     let x = object.collider.center.x;
     let z = object.collider.center.z;
     spawn(x, CAMERA_HEIGHT, z);
