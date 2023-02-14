@@ -131,6 +131,7 @@ const gardenLoadingPromise = new Promise((resolve, reject) => {
   .then(garden => {
     let root = garden.getObjectByName('gardengltf').getObjectByName('gardenglb').getObjectByName('Sketchfab_model').getObjectByName('Root');
     let ground = root.getObjectByName('Ground').getObjectByName('Ground_0');
+    worldOctree.fromGraphNode(garden);
     scene.add(garden);
   })
 
